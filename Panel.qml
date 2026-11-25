@@ -38,6 +38,11 @@ Panel {
   property int keyRow: 0
   property int keyColumn: 0
   property bool copied: false
+  property bool refreshQueued: false
+  property bool refreshing: false
+  property bool reading: false
+  property var readQueue: []
+  readonly property bool checkForActivity: !settings || settings.checkForActivity !== false
 
   // Never hand an untrusted string directly to Omarchy's tooltip or notification
   // components: unlike our own Text elements their text format is not ours to set.
@@ -75,6 +80,7 @@ Panel {
 
   function checkJobs() { if (!jobsProc.running) jobsProc.running = true }
   function acceptJobs(raw) {
+    if (String(raw || "").length > 1100000) return
     var data
     try { data = JSON.parse(String(raw || "")) } catch (e) { return }
     if (!Array.isArray(data)) return
@@ -121,7 +127,10 @@ Panel {
   Process {
     id: availableProc
     command: ["bash", root.tool, "available"]
-    onExited: function(code) { root.installed = code === 0 }
+    onExited: function(code) {
+      root.installed = code === 0
+      if (root.installed && root.checkForActivity) root.refreshData()
+    }
   }
   Process {
     id: jobsProc
@@ -280,6 +289,117 @@ Panel {
     return strings.t("video.counts")
       .arg(strings.tn("video.views", video.views).arg(Commons.I18n.formatNumber(video.views)))
       .arg(strings.tn("video.comments", video.comments).arg(Commons.I18n.formatNumber(video.comments)))
+  }
+
+  function refreshData() {
+    if (!installed) return
+    if (refreshing || recentProc.running || activityProc.running) { refreshQueued = true; return }
+    refreshing = true
+    recentProc.running = true
+  }
+  function cleanVideo(v) {
+    if (!v || typeof v !== "object") return null
+    var thumbnail = typeof v.thumbnail === "string" && v.thumbnail.startsWith("/")
+      && v.thumbnail.length < 4096 && !/[\r\n\0]/.test(v.thumbnail) ? "file://" + encodeURI(v.thumbnail) : ""
+    return {
+      title: short(v.title, 200), link: validLink(v.link), thumbnail: thumbnail,
+      createdAt: short(v.createdAt, 40),
+      duration: Math.max(0, Math.min(86400, Number(v.duration) || 0)),
+      views: count(v.views), comments: count(v.comments)
+    }
+  }
+  function acceptRecent(raw) {
+    if (String(raw || "").length > 300000) return
+    var data
+    try { data = JSON.parse(String(raw || "")) } catch (e) { return }
+    if (!data || typeof data !== "object") return
+    if (typeof data.error === "string") {
+      signedOut = data.error.indexOf("Sign in to OmaShare first") === 0
+      errorText = short(data.error, 200)
+      if (signedOut) { videos = []; activities = []; unread = 0; dashboard = "" }
+      return
+    }
+    if (!Array.isArray(data.videos)) return
+    var list = []
+    for (var i = 0; i < Math.min(8, data.videos.length); i++) {
+      var video = cleanVideo(data.videos[i])
+      if (video) list.push(video)
+    }
+    videos = list
+    dashboard = validLink(data.dashboard)
+    unread = count(data.unread)
+    signedOut = false
+    errorText = ""
+  }
+  function acceptActivity(raw) {
+    if (String(raw || "").length > 300000) return
+    var data
+    try { data = JSON.parse(String(raw || "")) } catch (e) { return }
+    if (!data || !Array.isArray(data.items)) return
+    var list = []
+    for (var i = 0; i < Math.min(30, data.items.length); i++) {
+      var item = data.items[i]
+      if (!item || !/^[A-Za-z0-9_-]{1,128}$/.test(item.id)
+          || ["comment", "reply", "reaction", "view"].indexOf(item.kind) < 0) continue
+      list.push({
+        id: item.id, kind: item.kind, who: short(item.who, 80), text: short(item.text, 200),
+        videoTitle: short(item.videoTitle, 200), link: validLink(item.link),
+        createdAt: short(item.createdAt, 40), read: item.read === true
+      })
+    }
+    activities = list
+    unread = count(data.unread)
+  }
+  function markRead(args) {
+    if (reading) { readQueue = args; return }
+    reading = true
+    var ids = args[0] === "--all" ? [] : args
+    var next = activities.map(function(a) {
+      if (args[0] !== "--all" && ids.indexOf(a.id) < 0) return a
+      var copy = Object.assign({}, a); copy.read = true; return copy
+    })
+    unread = Math.max(0, unread - (args[0] === "--all" ? unread : activities.filter(function(a) {
+      return !a.read && ids.indexOf(a.id) >= 0
+    }).length))
+    activities = next
+    readProc.command = ["omashare", "activity", "--read"].concat(args)
+    readProc.running = true
+  }
+
+  Process {
+    id: recentProc
+    command: ["omashare", "recent", "--json", "--limit", "8"]
+    stdout: StdioCollector { onStreamFinished: root.acceptRecent(text) }
+    onExited: { if (!activityProc.running) activityProc.running = true }
+  }
+  Process {
+    id: activityProc
+    command: ["omashare", "activity", "--json", "--limit", "30"]
+    stdout: StdioCollector { onStreamFinished: if (!root.signedOut) root.acceptActivity(text) }
+    onExited: {
+      root.refreshing = false
+      if (root.refreshQueued) {
+        root.refreshQueued = false
+        Qt.callLater(root.refreshData)
+      }
+    }
+  }
+  Process {
+    id: readProc
+    onExited: {
+      root.reading = false
+      if (root.readQueue.length) {
+        var args = root.readQueue
+        root.readQueue = []
+        root.markRead(args)
+      } else root.refreshData()
+    }
+  }
+  Timer {
+    interval: 300000
+    running: root.installed && root.checkForActivity
+    repeat: true
+    onTriggered: root.refreshData()
   }
 
   Process {
