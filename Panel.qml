@@ -71,7 +71,8 @@ Panel {
         else if (activities[i].kind === "comment" || activities[i].kind === "reply") comments++
       }
       return safe(strings.tn("bar.new", unread).arg(Commons.I18n.formatNumber(unread))
-        .arg(Commons.I18n.formatNumber(comments)).arg(Commons.I18n.formatNumber(views)), 180)
+        .arg(strings.tn("video.comments", comments).arg(Commons.I18n.formatNumber(comments)))
+        .arg(strings.tn("video.views", views).arg(Commons.I18n.formatNumber(views))), 180)
     }
     return strings.t("bar.title")
   }
@@ -101,8 +102,10 @@ Panel {
       var previous = knownJobs[key]
       if (seeded && previous && previous.state === "running" && entry.state !== "running") {
         if (entry.state === "done") {
-          if (entry.link) Quickshell.execDetached(["bash", tool, "copy", entry.link])
-          Quickshell.execDetached(["omarchy-notification-send", strings.t("notice.copied"), safe(entry.title || entry.name, 200)])
+          if (entry.link) {
+            Quickshell.execDetached(["bash", tool, "copy", entry.link])
+            Quickshell.execDetached(["omarchy-notification-send", strings.t("notice.copied"), safe(entry.title || entry.name, 200)])
+          }
           justFinished = true
           finishedTimer.restart()
         } else {
@@ -169,7 +172,7 @@ Panel {
           onVisibleChanged: requestPaint()
           NumberAnimation on angle {
             from: 0; to: 360; duration: Style.duration(2500)
-            loops: Animation.Infinite; running: parent.visible && parent.spinning
+            loops: Animation.Infinite; running: parent.visible && parent.spinning && Style.duration(2500) > 0
           }
           onPaint: {
             var ctx = getContext("2d")
@@ -178,7 +181,7 @@ Panel {
             ctx.beginPath()
             ctx.arc(width / 2, height / 2, Math.min(width, height) / 2 - 1, -Math.PI / 2 + angle * Math.PI / 180,
               -Math.PI / 2 + angle * Math.PI / 180 + (spinning ? Math.PI * 0.8 : Math.PI * 2 * progress / 100))
-            ctx.strokeStyle = root.accent
+            ctx.strokeStyle = String(root.accent)
             ctx.lineWidth = 1.5
             ctx.stroke()
           }
@@ -299,8 +302,11 @@ Panel {
   }
   function cleanVideo(v) {
     if (!v || typeof v !== "object") return null
-    var thumbnail = typeof v.thumbnail === "string" && v.thumbnail.startsWith("/")
-      && v.thumbnail.length < 4096 && !/[\r\n\0]/.test(v.thumbnail) ? "file://" + encodeURI(v.thumbnail) : ""
+    var home = Quickshell.env("HOME")
+    var thumbnail = typeof v.thumbnail === "string" && v.thumbnail.length < 4096
+      && v.thumbnail.startsWith(home + "/.cache/omashare/thumbs/")
+      && /^[A-Za-z0-9_-]{1,64}\.(jpg|png)$/.test(v.thumbnail.slice((home + "/.cache/omashare/thumbs/").length))
+      ? "file://" + encodeURI(v.thumbnail).replace(/#/g, "%23").replace(/\?/g, "%3F") : ""
     return {
       title: short(v.title, 200), link: validLink(v.link), thumbnail: thumbnail,
       createdAt: short(v.createdAt, 40),
