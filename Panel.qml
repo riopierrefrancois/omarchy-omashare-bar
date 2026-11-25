@@ -38,6 +38,7 @@ Panel {
   property int keyRow: 0
   property int keyColumn: 0
   property bool copied: false
+  property int copiedIndex: -1
   property bool refreshQueued: false
   property bool refreshing: false
   property bool reading: false
@@ -268,7 +269,7 @@ Panel {
       rows.push([{kind: "readAll"}])
     }
     for (var v = 0; v < videos.length && v < 8; v++)
-      rows.push([{kind: "video", index: v}, {kind: "copy", index: v}, {kind: "open", index: v}])
+      rows.push([{kind: "video", index: v}, {kind: "copy", index: v}])
     if (dashboard) rows.push([{kind: "dashboard"}])
     return rows
   }
@@ -298,7 +299,7 @@ Panel {
     else if (target.kind === "dashboard") openLink(dashboard)
     else if (target.kind === "activity") openActivity(activities[target.index])
     else if (target.kind === "video" || target.kind === "open") openLink(videos[target.index].link)
-    else if (target.kind === "copy") copyLink(videos[target.index].link)
+    else if (target.kind === "copy") { copiedIndex = target.index; copyLink(videos[target.index].link) }
   }
   function pickVideo() {
     if (!installed || pickProc.running) return
@@ -645,6 +646,13 @@ Panel {
                 Item {
                   Layout.preferredWidth: Style.space(56)
                   Layout.preferredHeight: Style.space(38)
+                  MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onEntered: root.point("video", index)
+                    onClicked: root.openLink(modelData.link)
+                  }
                   Rectangle { anchors.fill: parent; color: root.dim; radius: Style.space(3) }
                   Image {
                     anchors.fill: parent; fillMode: Image.PreserveAspectCrop
@@ -671,19 +679,12 @@ Panel {
                     onTriggered: root.openLink(modelData.link)
                   }
                 }
-                ActionRow {
-                  Layout.preferredWidth: Style.space(55)
-                  label: root.copied && root.selected("copy", index) ? strings.t("panel.copied") : strings.t("panel.copy")
+                IconAction {
+                  // Copy link; shows a check for two seconds once copied.
+                  glyph: root.copied && root.copiedIndex === index ? "󰄬" : "󰆏"
                   highlighted: root.selected("copy", index)
                   onHovered: root.point("copy", index)
-                  onTriggered: root.copyLink(modelData.link)
-                }
-                ActionRow {
-                  Layout.preferredWidth: Style.space(40)
-                  label: strings.t("panel.open")
-                  highlighted: root.selected("open", index)
-                  onHovered: root.point("open", index)
-                  onTriggered: root.openLink(modelData.link)
+                  onTriggered: { root.copiedIndex = index; root.copyLink(modelData.link) }
                 }
               }
             }
@@ -699,6 +700,33 @@ Panel {
           }
         }
       }
+    }
+  }
+
+  component IconAction: CursorSurface {
+    id: iconAction
+    property string glyph: ""
+    property bool highlighted: false
+    signal hovered()
+    signal triggered()
+    hasCursor: highlighted
+    foreground: root.foreground
+    Layout.preferredWidth: Style.space(26)
+    Layout.preferredHeight: Style.space(26)
+    Layout.alignment: Qt.AlignVCenter
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: iconAction.hovered()
+      onClicked: iconAction.triggered()
+    }
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: iconAction.glyph
+      color: root.foreground; font.family: root.fontFamily
+      font.pixelSize: Style.bar.iconFont
     }
   }
 

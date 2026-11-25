@@ -1,6 +1,9 @@
 {
   "bar.title": "OmaShare",
-  "bar.new": { "one": "%1 new: %2, %3", "other": "%1 new: %2, %3" },
+  "bar.new": {
+    "one": "%1 new: %2, %3",
+    "other": "%1 new: %2, %3"
+  },
   "stage.preparing": "Getting the video ready",
   "stage.uploading": "Uploading %1%",
   "stage.transcribing": "Listening to the video",
@@ -14,9 +17,6 @@
   "panel.readAll": "Mark all as seen",
   "panel.recent": "Recent shares",
   "panel.empty": "No shares yet. Share a video from Omaedit, Omacut, Omareel, or here.",
-  "panel.copy": "Copy link",
-  "panel.copied": "Copied",
-  "panel.open": "Open",
   "panel.dashboard": "My videos",
   "activity.someone": "Someone",
   "activity.video": "a video",
@@ -25,11 +25,26 @@
   "activity.reply": "%1 replied on %2: “%3”",
   "activity.comment": "%1 commented on %2: “%3”",
   "time.now": "Just now",
-  "time.minutes": { "one": "%1 min ago", "other": "%1 min ago" },
-  "time.hours": { "one": "%1 hour ago", "other": "%1 hours ago" },
-  "time.days": { "one": "%1 day ago", "other": "%1 days ago" },
+  "time.minutes": {
+    "one": "%1 min ago",
+    "other": "%1 min ago"
+  },
+  "time.hours": {
+    "one": "%1 hour ago",
+    "other": "%1 hours ago"
+  },
+  "time.days": {
+    "one": "%1 day ago",
+    "other": "%1 days ago"
+  },
   "video.date": "%1 · %2",
   "video.counts": "%1 · %2",
-  "video.views": { "one": "%1 view", "other": "%1 views" },
-  "video.comments": { "one": "%1 comment", "other": "%1 comments" }
+  "video.views": {
+    "one": "%1 view",
+    "other": "%1 views"
+  },
+  "video.comments": {
+    "one": "%1 comment",
+    "other": "%1 comments"
+  }
 }
