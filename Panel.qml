@@ -153,42 +153,100 @@ Panel {
     bar: root.bar
     iconComponent: Component {
       Item {
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: root.justFinished ? "󰄬" : "󰒖"
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.bar.iconFont
-        }
+        // The OmaShare mark (the site's logo and favicon): a rounded square with a
+        // play triangle, drawn in the bar's colour. While sharing, the square's own
+        // outline fills clockwise from the top; when done, the triangle becomes a check.
+        implicitWidth: Style.bar.iconFont
+        implicitHeight: Style.bar.iconFont
         Canvas {
-          anchors.fill: parent
-          visible: root.mainJob !== null
-          property real progress: root.mainJob ? root.mainJob.percent : 0
-          property bool spinning: root.mainJob && root.mainJob.stage !== "uploading"
-          property real angle: 0
+          id: mark
+          anchors.centerIn: parent
+          width: Style.bar.iconFont; height: width
+          property bool sharing: root.mainJob !== null
+          property real progress: root.mainJob ? Math.max(0, Math.min(100, root.mainJob.percent || 0)) : 0
+          property bool spinning: sharing && root.mainJob.stage !== "uploading"
+          property bool done: root.justFinished
+          property real phase: 0
+          property color ink: root.foreground
+          property color track: root.dim
+          property color fill: root.accent
+          onSharingChanged: requestPaint()
           onProgressChanged: requestPaint()
-          onAngleChanged: requestPaint()
-          onVisibleChanged: requestPaint()
-          NumberAnimation on angle {
-            from: 0; to: 360; duration: Style.duration(2500)
-            loops: Animation.Infinite; running: parent.visible && parent.spinning && Style.duration(2500) > 0
+          onSpinningChanged: requestPaint()
+          onDoneChanged: requestPaint()
+          onPhaseChanged: requestPaint()
+          onInkChanged: requestPaint()
+          onWidthChanged: requestPaint()
+          NumberAnimation on phase {
+            from: 0; to: 1; duration: Style.duration(1600)
+            loops: Animation.Infinite; running: mark.spinning && Style.duration(1600) > 0
+          }
+          // Points along the rounded square, clockwise from the top middle, in the
+          // logo's 18-unit box (square 1..17, corner radius 4).
+          function outline() {
+            var pts = [], r = 4, lo = 1, hi = 17, c = [[hi - r, lo + r, -90], [hi - r, hi - r, 0], [lo + r, hi - r, 90], [lo + r, lo + r, 180]]
+            pts.push([9, lo])
+            for (var k = 0; k < 4; k++) {
+              for (var a = 0; a <= 8; a++) {
+                var t = (c[k][2] + a * 90 / 8) * Math.PI / 180
+                pts.push([c[k][0] + r * Math.cos(t), c[k][1] + r * Math.sin(t)])
+              }
+            }
+            pts.push([9, lo])
+            return pts
+          }
+          function strokePart(ctx, pts, from, to) {
+            // Draw the stretch of the outline between fractions `from` and `to` (0..1).
+            var lens = [0], total = 0
+            for (var i = 1; i < pts.length; i++) {
+              total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+              lens.push(total)
+            }
+            ctx.beginPath()
+            var started = false
+            for (var j = 1; j < pts.length; j++) {
+              var a = lens[j - 1] / total, b = lens[j] / total
+              if (b < from || a > to) continue
+              var s = Math.max(0, (from - a) / (b - a)), e = Math.min(1, (to - a) / (b - a))
+              var p = pts[j - 1], q = pts[j]
+              if (!started) { ctx.moveTo(p[0] + (q[0] - p[0]) * s, p[1] + (q[1] - p[1]) * s); started = true }
+              ctx.lineTo(p[0] + (q[0] - p[0]) * e, p[1] + (q[1] - p[1]) * e)
+            }
+            ctx.stroke()
           }
           onPaint: {
             var ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            if (!visible) return
-            ctx.beginPath()
-            ctx.arc(width / 2, height / 2, Math.min(width, height) / 2 - 1, -Math.PI / 2 + angle * Math.PI / 180,
-              -Math.PI / 2 + angle * Math.PI / 180 + (spinning ? Math.PI * 0.8 : Math.PI * 2 * progress / 100))
-            ctx.strokeStyle = String(root.accent)
-            ctx.lineWidth = 1.5
-            ctx.stroke()
+            ctx.reset()
+            ctx.scale(width / 18, height / 18)
+            ctx.lineWidth = 1.8
+            ctx.lineCap = "round"
+            ctx.lineJoin = "round"
+            var pts = outline()
+            ctx.strokeStyle = String(sharing ? track : ink)
+            strokePart(ctx, pts, 0, 1)
+            if (sharing) {
+              ctx.strokeStyle = String(fill)
+              if (spinning) {
+                var head = phase, tail = phase + 0.3
+                strokePart(ctx, pts, head, Math.min(1, tail))
+                if (tail > 1) strokePart(ctx, pts, 0, tail - 1)
+              } else if (progress > 0) {
+                strokePart(ctx, pts, 0, progress / 100)
+              }
+            }
+            ctx.fillStyle = String(ink)
+            ctx.strokeStyle = String(ink)
+            if (done) {
+              ctx.lineWidth = 1.8
+              ctx.beginPath(); ctx.moveTo(5.6, 9.2); ctx.lineTo(8, 11.6); ctx.lineTo(12.6, 6.6); ctx.stroke()
+            } else {
+              ctx.beginPath(); ctx.moveTo(7, 5.5); ctx.lineTo(7, 12.5); ctx.lineTo(12.5, 9); ctx.closePath(); ctx.fill()
+            }
           }
         }
         Rectangle {
           visible: root.unread > 0
-          anchors.right: parent.right; anchors.top: parent.top
+          x: mark.x + mark.width - width * 0.7; y: mark.y - height * 0.3
           width: Style.space(5); height: width; radius: width / 2
           color: root.urgent
         }
