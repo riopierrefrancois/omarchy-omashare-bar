@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "omashare.share",
+  "name": "OmaShare",
+  "version": "1.0.0",
+  "author": "PF",
+  "license": "MIT",
+  "description": "Share videos and see progress, recent shares, and new activity in the bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "OmaShare",
+    "description": "Share a video and see recent shares and activity.",
+    "category": "Capture",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "checkForActivity": true },
+    "schema": [
+      { "key": "checkForActivity", "type": "boolean", "label": "Check for new activity in the background", "defaultValue": true }
+    ]
+  }
+}
