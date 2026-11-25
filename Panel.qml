@@ -188,4 +188,374 @@ Panel {
       else root.toggle()
     }
   }
+
+  readonly property var keyRows: {
+    var rows = [[{kind: "pick"}]]
+    if (signedOut) return []
+    if (unread > 0) {
+      for (var a = 0; a < activities.length && a < 5; a++)
+        rows.push([{kind: "activity", index: a}])
+      rows.push([{kind: "readAll"}])
+    }
+    for (var v = 0; v < videos.length && v < 8; v++)
+      rows.push([{kind: "video", index: v}, {kind: "copy", index: v}, {kind: "open", index: v}])
+    if (dashboard) rows.push([{kind: "dashboard"}])
+    return rows
+  }
+  readonly property var keyTarget: cursorActive && keyRow < keyRows.length
+    ? keyRows[keyRow][Math.min(keyColumn, keyRows[keyRow].length - 1)] : null
+  function selected(kind, index) {
+    return keyTarget && keyTarget.kind === kind && keyTarget.index === (index || 0)
+  }
+  function point(kind, index) {
+    for (var r = 0; r < keyRows.length; r++)
+      for (var c = 0; c < keyRows[r].length; c++)
+        if (keyRows[r][c].kind === kind && keyRows[r][c].index === (index || 0)) {
+          cursorActive = true; keyRow = r; keyColumn = c; return
+        }
+  }
+  function moveKey(dx, dy) {
+    if (!keyRows.length) return
+    if (!cursorActive) { cursorActive = true; keyRow = 0; keyColumn = 0; return }
+    keyRow = Math.max(0, Math.min(keyRows.length - 1, keyRow + dy))
+    keyColumn = Math.max(0, Math.min(keyRows[keyRow].length - 1, keyColumn + dx))
+  }
+  function activate() {
+    var target = keyTarget || (keyRows.length ? keyRows[0][0] : null)
+    if (!target) return
+    if (target.kind === "pick") pickVideo()
+    else if (target.kind === "readAll") markRead(["--all"])
+    else if (target.kind === "dashboard") openLink(dashboard)
+    else if (target.kind === "activity") openActivity(activities[target.index])
+    else if (target.kind === "video" || target.kind === "open") openLink(videos[target.index].link)
+    else if (target.kind === "copy") copyLink(videos[target.index].link)
+  }
+  function pickVideo() {
+    if (!installed || pickProc.running) return
+    close()
+    pickProc.running = true
+  }
+  function openLink(link) {
+    var url = validLink(link)
+    if (url) Quickshell.execDetached(["xdg-open", url])
+    close()
+  }
+  function copyLink(link) {
+    var url = validLink(link)
+    if (!url) return
+    Quickshell.execDetached(["bash", tool, "copy", url])
+    copied = true; copiedTimer.restart()
+  }
+  function openActivity(item) {
+    if (!item) return
+    if (!item.read) markRead([item.id])
+    openLink(item.link)
+  }
+  function relative(iso) {
+    var age = Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 60000))
+    if (!isFinite(age)) return ""
+    if (age < 1) return strings.t("time.now")
+    if (age < 60) return strings.tn("time.minutes", age).arg(Commons.I18n.formatNumber(age))
+    var hours = Math.floor(age / 60)
+    if (hours < 24) return strings.tn("time.hours", hours).arg(Commons.I18n.formatNumber(hours))
+    var days = Math.floor(hours / 24)
+    return strings.tn("time.days", days).arg(Commons.I18n.formatNumber(days))
+  }
+  function activityText(item) {
+    var who = item.who || strings.t("activity.someone")
+    var title = item.videoTitle || strings.t("activity.video")
+    if (item.kind === "view") return strings.t("activity.view").arg(who).arg(title)
+    if (item.kind === "reaction") return strings.t("activity.reaction").arg(who).arg(title)
+    if (item.kind === "reply") return strings.t("activity.reply").arg(who).arg(title).arg(item.text || "")
+    return strings.t("activity.comment").arg(who).arg(title).arg(item.text || "")
+  }
+  function videoDate(video) {
+    var date = new Date(video.createdAt)
+    if (!isFinite(date.getTime())) return ""
+    var stamp = Qt.locale(Commons.I18n.formatLocale).toString(date, "MMM d")
+    var seconds = Math.floor(video.duration)
+    return strings.t("video.date").arg(stamp).arg(Math.floor(seconds / 60) + ":" + ("0" + seconds % 60).slice(-2))
+  }
+  function videoCounts(video) {
+    return strings.t("video.counts")
+      .arg(strings.tn("video.views", video.views).arg(Commons.I18n.formatNumber(video.views)))
+      .arg(strings.tn("video.comments", video.comments).arg(Commons.I18n.formatNumber(video.comments)))
+  }
+
+  Process {
+    id: pickProc
+    command: ["bash", root.tool, "pick"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var path = String(text || "").trim()
+        if (path.startsWith("/") && path.length <= 4096 && !/[\r\n\0]/.test(path))
+          Quickshell.execDetached(["bash", root.tool, "upload", path])
+      }
+    }
+  }
+  Timer { id: copiedTimer; interval: 2000; onTriggered: root.copied = false }
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: button
+    owner: root
+    bar: root.bar
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(400))
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
+    heightLive: true
+
+    PanelKeyCatcher {
+      id: keyCatcher
+      anchors.fill: parent
+      onMoveRequested: function(dx, dy) { root.moveKey(dx, dy) }
+      onActivateRequested: root.activate()
+      onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+
+      Flickable {
+        anchors.fill: parent
+        contentHeight: contentColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+
+        Column {
+          id: contentColumn
+          width: parent.width
+          spacing: Style.space(10)
+
+          Text {
+            textFormat: Text.PlainText
+            text: strings.t("bar.title")
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+          }
+
+          Column {
+            visible: root.runningJobs.length > 0 && !root.signedOut
+            width: parent.width
+            spacing: Style.space(5)
+            Text {
+              textFormat: Text.PlainText
+              text: strings.t("panel.sharing")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Repeater {
+              model: root.runningJobs
+              Column {
+                required property var modelData
+                width: parent.width
+                spacing: Style.space(3)
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.filename(modelData.file)
+                  width: parent.width; elide: Text.ElideRight
+                  color: root.foreground; font.family: root.fontFamily
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.stage(modelData)
+                  color: root.dim; font.family: root.fontFamily
+                }
+                Rectangle {
+                  width: parent.width; height: Style.space(3)
+                  color: root.dim; radius: height / 2
+                  Rectangle {
+                    width: parent.width * (modelData.stage === "uploading" ? modelData.percent / 100 : 0.12)
+                    height: parent.height; radius: height / 2; color: root.accent
+                  }
+                }
+              }
+            }
+          }
+
+          ActionRow {
+            visible: !root.signedOut
+            width: parent.width
+            label: strings.t("panel.pick")
+            glyph: "󰐕"
+            highlighted: root.selected("pick")
+            onHovered: root.point("pick", 0)
+            onTriggered: root.pickVideo()
+          }
+
+          Text {
+            visible: root.signedOut
+            width: parent.width
+            textFormat: Text.PlainText
+            text: strings.t("panel.signIn")
+            wrapMode: Text.WordWrap
+            color: root.foreground; font.family: root.fontFamily
+          }
+          Text {
+            visible: !root.signedOut && root.errorText !== ""
+            width: parent.width
+            textFormat: Text.PlainText
+            text: root.errorText
+            wrapMode: Text.WordWrap
+            color: root.dim; font.family: root.fontFamily
+          }
+
+          Column {
+            visible: !root.signedOut && root.unread > 0
+            width: parent.width
+            spacing: Style.space(4)
+            Text {
+              textFormat: Text.PlainText
+              text: strings.t("panel.new")
+              color: root.foreground; font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Repeater {
+              model: root.activities.slice(0, 5)
+              ActionRow {
+                required property var modelData
+                required property int index
+                width: parent.width
+                label: root.activityText(modelData)
+                detail: root.relative(modelData.createdAt)
+                highlighted: root.selected("activity", index)
+                onHovered: root.point("activity", index)
+                onTriggered: root.openActivity(modelData)
+              }
+            }
+            ActionRow {
+              width: parent.width
+              label: strings.t("panel.readAll")
+              highlighted: root.selected("readAll")
+              onHovered: root.point("readAll", 0)
+              onTriggered: root.markRead(["--all"])
+            }
+          }
+
+          Column {
+            visible: !root.signedOut
+            width: parent.width
+            spacing: Style.space(4)
+            Text {
+              textFormat: Text.PlainText
+              text: strings.t("panel.recent")
+              color: root.foreground; font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            Text {
+              visible: root.videos.length === 0
+              width: parent.width
+              textFormat: Text.PlainText
+              text: strings.t("panel.empty")
+              wrapMode: Text.WordWrap
+              color: root.dim; font.family: root.fontFamily
+            }
+            Repeater {
+              model: root.videos.slice(0, 8)
+              RowLayout {
+                required property var modelData
+                required property int index
+                width: parent.width
+                spacing: Style.space(6)
+                Item {
+                  Layout.preferredWidth: Style.space(56)
+                  Layout.preferredHeight: Style.space(38)
+                  Rectangle { anchors.fill: parent; color: root.dim; radius: Style.space(3) }
+                  Image {
+                    anchors.fill: parent; fillMode: Image.PreserveAspectCrop
+                    source: modelData.thumbnail || ""
+                    visible: modelData.thumbnail !== ""
+                    cache: false; asynchronous: true
+                  }
+                  Text {
+                    anchors.centerIn: parent
+                    visible: !modelData.thumbnail
+                    textFormat: Text.PlainText; text: "󰕧"
+                    color: root.foreground; font.family: root.fontFamily
+                  }
+                }
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: 0
+                  ActionRow {
+                    Layout.fillWidth: true
+                    label: modelData.title
+                    detail: root.videoDate(modelData) + " · " + root.videoCounts(modelData)
+                    highlighted: root.selected("video", index)
+                    onHovered: root.point("video", index)
+                    onTriggered: root.openLink(modelData.link)
+                  }
+                }
+                ActionRow {
+                  Layout.preferredWidth: Style.space(55)
+                  label: root.copied && root.selected("copy", index) ? strings.t("panel.copied") : strings.t("panel.copy")
+                  highlighted: root.selected("copy", index)
+                  onHovered: root.point("copy", index)
+                  onTriggered: root.copyLink(modelData.link)
+                }
+                ActionRow {
+                  Layout.preferredWidth: Style.space(40)
+                  label: strings.t("panel.open")
+                  highlighted: root.selected("open", index)
+                  onHovered: root.point("open", index)
+                  onTriggered: root.openLink(modelData.link)
+                }
+              }
+            }
+          }
+
+          ActionRow {
+            visible: !root.signedOut && root.dashboard !== ""
+            width: parent.width
+            label: strings.t("panel.dashboard")
+            highlighted: root.selected("dashboard")
+            onHovered: root.point("dashboard", 0)
+            onTriggered: root.openLink(root.dashboard)
+          }
+        }
+      }
+    }
+  }
+
+  component ActionRow: CursorSurface {
+    id: row
+    property string label: ""
+    property string detail: ""
+    property string glyph: ""
+    property bool highlighted: false
+    signal hovered()
+    signal triggered()
+    hasCursor: highlighted
+    foreground: root.foreground
+    implicitHeight: body.implicitHeight + Style.space(8)
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: row.hovered()
+      onClicked: row.triggered()
+    }
+    Column {
+      id: body
+      anchors.left: parent.left; anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(6); anchors.rightMargin: Style.space(6)
+      Text {
+        textFormat: Text.PlainText
+        width: parent.width
+        text: row.glyph ? row.glyph + " " + row.label : row.label
+        color: root.foreground; font.family: root.fontFamily
+        elide: Text.ElideRight
+      }
+      Text {
+        visible: row.detail !== ""
+        textFormat: Text.PlainText
+        width: parent.width; text: row.detail
+        color: root.dim; font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        elide: Text.ElideRight
+      }
+    }
+  }
 }
